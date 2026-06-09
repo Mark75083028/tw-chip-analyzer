@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>台股題材籌碼排名</title>
+  <style>
+    :root { --bg:#f5f7fb; --panel:#fff; --ink:#172033; --muted:#667085; --line:#d9e1ec; --green:#079455; --red:#d92d20; --amber:#b7791f; --dark:#111827; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--ink); font-family:"Microsoft JhengHei","PingFang TC",Arial,sans-serif; }
+    .app { min-height:100vh; display:grid; grid-template-columns:280px 1fr; }
+    .sidebar { background:var(--dark); color:#f8fafc; padding:22px 18px; display:grid; align-content:start; gap:18px; }
+    .brand { display:flex; align-items:center; gap:10px; font-size:20px; font-weight:800; }
+    .mark { width:34px; height:34px; border-radius:8px; background:#22c55e; color:#052e16; display:grid; place-items:center; font-weight:900; }
+    label { color:#cbd5e1; font-size:13px; }
+    select, button { font:inherit; }
+    select, .primary { width:100%; border-radius:8px; padding:10px 12px; }
+    select { border:1px solid #334155; background:#0f172a; color:#f8fafc; }
+    .primary { border:0; background:#22c55e; color:#052e16; cursor:pointer; font-weight:800; }
+    .primary:disabled { opacity:.6; cursor:wait; }
+    .hint { color:#94a3b8; font-size:12px; line-height:1.55; }
+    .main { padding:24px; display:grid; gap:16px; align-content:start; }
+    h1,h2 { margin:0; letter-spacing:0; } h1{font-size:28px;} h2{font-size:18px;}
+    .status { color:var(--muted); font-size:14px; margin-top:6px; }
+    .banner { border:1px solid #f4c95d; background:#fff8df; color:#6b4e00; border-radius:8px; padding:12px 14px; line-height:1.55; font-size:14px; }
+    .metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+    .metric,.panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; box-shadow:0 12px 30px rgba(23,32,51,.08); }
+    .metric { min-height:104px; padding:16px; display:grid; align-content:space-between; gap:10px; }
+    .metric strong { color:var(--muted); font-size:13px; } .metric .value { font-size:26px; font-weight:900; }
+    .panel { padding:16px; min-width:0; }
+    .layout { display:grid; grid-template-columns:1.35fr 1fr; gap:16px; }
+    .panel-head { display:flex; justify-content:space-between; gap:12px; margin-bottom:12px; align-items:center; }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th,td { border-bottom:1px solid var(--line); padding:10px 8px; white-space:nowrap; text-align:right; }
+    th:first-child,td:first-child,th:nth-child(2),td:nth-child(2),th:nth-child(3),td:nth-child(3){ text-align:left; }
+    th { color:var(--muted); font-size:12px; } tbody tr { cursor:pointer; } tbody tr:hover{background:#f8fafc;} tbody tr.active{background:#e8f0ff;}
+    .score { display:inline-grid; place-items:center; min-width:44px; height:28px; border-radius:999px; background:#edf7f1; color:var(--green); font-weight:900; }
+    .rating { display:grid; gap:3px; min-width:120px; } .stars { color:var(--amber); font-weight:900; font-size:13px; } .forecast{font-size:12px;color:var(--muted);line-height:1.35;}
+    .pos{color:var(--green);} .neg{color:var(--red);} .muted{color:var(--muted);}
+    canvas { width:100%; height:300px; display:block; }
+    .chips { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .chip { border:1px solid var(--line); background:#f8fafc; border-radius:999px; padding:7px 10px; font-size:13px; color:var(--muted); }
+    @media(max-width:1040px){.app,.layout,.metrics{grid-template-columns:1fr;}} @media(max-width:720px){.main{padding:16px}.table-wrap{overflow-x:auto}canvas{height:240px}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand"><div class="mark">籌</div><div>題材籌碼排名</div></div>
+      <button class="primary" id="updateButton">更新公開資料</button>
+      <div><label for="themeSelect">題材股票池</label><select id="themeSelect"></select></div>
+      <div><label for="stockSelect">個股</label><select id="stockSelect"></select></div>
+      <div class="hint">資料來源：TWSE / TPEx 官方公開資料；上市收盤優先用證交所指定日期 MI_INDEX。Yahoo 僅作價格校對參考。</div>
+    </aside>
+    <main class="main">
+      <section><h1>一鍵更新 + 股票池排名</h1><div class="status" id="statusText">尚未更新</div></section>
+      <section class="banner" id="banner">按左側「更新公開資料」取得最新盤後資料。</section>
+      <section class="metrics">
+        <article class="metric"><strong>股票池檔數</strong><div class="value" id="metricCount">--</div></article>
+        <article class="metric"><strong>平均籌碼分數</strong><div class="value" id="metricAverage">--</div></article>
+        <article class="metric"><strong>法人買超檔數</strong><div class="value pos" id="metricPositive">--</div></article>
+        <article class="metric"><strong>資料最新日</strong><div class="value" id="metricDate">--</div></article>
+      </section>
+      <section class="layout">
+        <article class="panel">
+          <div class="panel-head"><h2>股票池排名</h2><span class="muted">依籌碼分數排序</span></div>
+          <div class="table-wrap"><table><thead><tr><th>排名</th><th>股票</th><th>題材</th><th>分數</th><th>收盤</th><th>漲跌</th><th>法人</th><th>融資</th><th>融券</th><th>評比 / 預測</th></tr></thead><tbody id="rankingRows"></tbody></table></div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><h2 id="detailTitle">個股明細</h2><span class="muted" id="detailDate">--</span></div>
+          <canvas id="chart" width="680" height="320"></canvas><div class="chips" id="detailSignals"></div>
+        </article>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><h2>每日資料</h2><span class="muted">更新一次累積一天</span></div>
+        <div class="table-wrap"><table><thead><tr><th>日期</th><th>股票</th><th>收盤</th><th>漲跌</th><th>外資</th><th>投信</th><th>自營商</th><th>法人合計</th><th>融資餘額</th><th>融券餘額</th></tr></thead><tbody id="historyRows"></tbody></table></div>
+      </section>
+    </main>
+  </div>
+  <script>
+    let stockPool = [], records = [], marketContext = null, selectedSymbol = "6285";
+    const updateButton = document.querySelector("#updateButton"), themeSelect = document.querySelector("#themeSelect"), stockSelect = document.querySelector("#stockSelect");
+    const chart = document.querySelector("#chart"), ctx = chart.getContext("2d");
+    const themes = ["all","AI","AI 伺服器 ODM","AI PC / 高階主機板","機殼 / 機構件","散熱 / 液冷 / 水冷","PCB / CCL / 高速板材","ABF 載板 / 先進封裝","電源 / 供電 / BBU / UPS","CPO / 矽光子 / 光通訊","ASIC / IC 設計 / IP","記憶體 / HBM / DRAM / NAND","連接器 / 線材 / 高速傳輸","機器人 / 自動化 / AI 終端","低軌衛星"];
+    const themeLabels = { all:"全部", AI:"AI 全部" };
+    themeSelect.innerHTML = themes.map(t => `<option value="${t}">${themeLabels[t] || t}</option>`).join("");
+    function number(v,d=0){return Number.isFinite(Number(v))?Number(v).toLocaleString("zh-TW",{maximumFractionDigits:d,minimumFractionDigits:d}):"--";}
+    function signed(v,d=0){if(!Number.isFinite(Number(v)))return"--";return `${Number(v)>0?"+":""}${number(v,d)}`;}
+    function cls(v){return Number(v)>=0?"pos":"neg";}
+    function latestBySymbol(){const m=new Map();records.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(r=>m.set(r.symbol,r));return m;}
+    function filteredPool(){const t=themeSelect.value;const seen=new Map();stockPool.filter(s=>t==="all"||s.theme===t||s.subgroup===t).forEach(s=>{if(!seen.has(s.symbol))seen.set(s.symbol,s)});return [...seen.values()];}
+    function seriesOf(symbol){return records.filter(r=>r.symbol===symbol).sort((a,b)=>a.date.localeCompare(b.date));}
+    function score(row,series){const first=series[0]||row;const inst=Number(row.foreign||0)+Number(row.trust||0)+Number(row.dealer||0);const priceMove=Number(row.close)-Number(first.close);const marginMove=Number(row.margin)-Number(first.margin);return Math.round(Math.max(0,Math.min(100,50+Math.max(-1,Math.min(1,inst/6000))*34+Math.max(-1,Math.min(1,priceMove/Math.max(first.close*.08,1)))*18-Math.max(-1,Math.min(1,marginMove/6000))*13)));}
+    function ratingBase(row){let s=0;const f=Number(row.foreign)>0,t=Number(row.trust)>0,m=Number(row.majorBuy??row.majorChange)>0;if(t)s+=.5;if(f)s+=.5;if(m)s+=.5;if(t&&f)s+=2;return s;}
+    function fourSeason(series){if(series.length<60)return false;return [5,10,20,60].every(n=>series.slice(-n).reduce((a,r)=>a+Number(r.foreign||0)+Number(r.trust||0)+Number(r.dealer||0),0)>0);}
+    function changePercent(r){const c=Number(r.close), ch=Number(r.change);return Number.isFinite(c)&&Number.isFinite(ch)&&c!==ch?ch/(c-ch)*100:null;}
+    function industryBonus(row){const peers=[...latestBySymbol().values()].filter(r=>r.subgroup===row.subgroup);if(!peers.length)return{score:0,labels:["族群資料不足"]};const up=peers.filter(r=>Number(r.change)>0).length,down=peers.filter(r=>Number(r.change)<0).length;const avg=peers.map(changePercent).filter(Number.isFinite).reduce((a,b,_,arr)=>a+b/arr.length,0);let s=0,l=[];if(up/peers.length>.6){s+=1;l.push("同群逾 60% 上漲 +1")}if(Number.isFinite(avg)&&Number.isFinite(marketContext?.changePercent)&&avg>marketContext.changePercent){s+=.5;l.push("同群平均勝大盤 +0.5")}if(down/peers.length>.6){s-=1;l.push("同群逾 60% 下跌 -1")}if(!l.length)l.push("族群中性");return{score:s,labels:l};}
+    function stars(row){return ratingBase(row)+(fourSeason(seriesOf(row.symbol))?.5:0)+industryBonus(row).score;}
+    function starText(s){if(!s)return"0";return `${"★".repeat(Math.max(0,Math.floor(s)))}${s%1?"½":""}`;}
+    function guess(row){const inst=Number(row.foreign||0)+Number(row.trust||0)+Number(row.dealer||0), st=stars(row);if(st>=2.5)return"up";if(st>=1&&inst>0&&Number(row.change)>=0)return"up";if(inst>0&&Number(row.foreign)>0&&Number(row.change)<0)return"up";return"down";}
+    function book(){try{return JSON.parse(localStorage.getItem("twChipPredictionBook")||'{"predictions":[],"stats":{}}')}catch{return{predictions:[],stats:{}}}}
+    function saveBook(b){localStorage.setItem("twChipPredictionBook",JSON.stringify(b));}
+    function updateBook(){const b=book(),latest=latestBySymbol();b.predictions??=[];b.stats??={};b.predictions.forEach(p=>{if(p.resolved)return;const a=latest.get(p.symbol);if(!a||a.date<=p.date)return;const dir=Number(a.close)-Number(p.close)>=0?"up":"down";p.resolved=true;p.correct=p.direction===dir;const st=b.stats[p.symbol]||{wins:0,total:0,streak:0};st.total++;if(p.correct){st.wins++;st.streak++;}else st.streak=0;b.stats[p.symbol]=st;});latest.forEach(r=>{const k=`${r.symbol}-${r.date}`;if(!b.predictions.some(p=>p.key===k))b.predictions.push({key:k,symbol:r.symbol,date:r.date,close:r.close,direction:guess(r),stars:stars(r),resolved:false});});saveBook(b);return b;}
+    function predInfo(row){const b=book(),p=b.predictions?.find(x=>x.key===`${row.symbol}-${row.date}`),st=b.stats?.[row.symbol]||{wins:0,total:0,streak:0};return{stars:p?.stars??stars(row),dir:p?.direction??guess(row),win:st.total?`${Math.round(st.wins/st.total*100)}%`:"--",streak:st.streak?`連${st.streak}`:"連0",industry:industryBonus(row),four:fourSeason(seriesOf(row.symbol))};}
+    function rows(){const latest=latestBySymbol();return filteredPool().map(s=>{const r=latest.get(s.symbol);return r?{...r,...s,score:score(r,seriesOf(s.symbol))}:{...s,missing:true,score:0}}).sort((a,b)=>b.score-a.score);}
+    function render(){updateBook();const rs=rows();stockSelect.innerHTML=rs.map(r=>`<option value="${r.symbol}">${r.symbol} ${r.name}</option>`).join("");if(!rs.some(r=>r.symbol===selectedSymbol)&&rs[0])selectedSymbol=rs[0].symbol;stockSelect.value=selectedSymbol;const present=rs.filter(r=>!r.missing);document.querySelector("#metricCount").textContent=rs.length;document.querySelector("#metricAverage").textContent=present.length?number(present.reduce((a,r)=>a+r.score,0)/present.length):"--";document.querySelector("#metricPositive").textContent=present.length?present.filter(r=>Number(r.foreign||0)+Number(r.trust||0)+Number(r.dealer||0)>0).length:"--";document.querySelector("#metricDate").textContent=present.map(r=>r.date).sort().at(-1)||"--";renderRanking(rs);renderDetail();}
+    function renderRanking(rs){document.querySelector("#rankingRows").innerHTML=rs.map((r,i)=>{if(r.missing)return`<tr data-symbol="${r.symbol}"><td>${i+1}</td><td>${r.symbol} ${r.name}</td><td>${r.subgroup}</td><td colspan="7" class="muted">尚無資料</td></tr>`;const inst=Number(r.foreign||0)+Number(r.trust||0)+Number(r.dealer||0),p=predInfo(r);return`<tr data-symbol="${r.symbol}" class="${r.symbol===selectedSymbol?"active":""}"><td>${i+1}</td><td>${r.symbol} ${r.name}</td><td>${r.subgroup}</td><td><span class="score">${r.score}</span></td><td>${number(r.close,2)}</td><td class="${cls(r.change)}">${signed(r.change,2)}</td><td class="${cls(inst)}">${signed(inst)}</td><td>${number(r.margin)}</td><td>${number(r.short)}</td><td><div class="rating"><div class="stars">${starText(p.stars)} <span class="muted">(${number(p.stars,1)})</span></div><div class="forecast">明日${p.dir==="up"?"猜漲":"猜跌"} / 勝率 ${p.win} / ${p.streak}</div></div></td></tr>`}).join("");document.querySelectorAll("#rankingRows tr").forEach(tr=>tr.onclick=()=>{selectedSymbol=tr.dataset.symbol;render();});}
+    function draw(series){ctx.clearRect(0,0,chart.width,chart.height);ctx.fillStyle="#fff";ctx.fillRect(0,0,chart.width,chart.height);if(!series.length){ctx.fillStyle="#667085";ctx.fillText("尚無資料",24,42);return;}const pad={top:24,right:24,bottom:42,left:60};const vals=series.flatMap(r=>[Number(r.close),Number(r.foreign||0)+Number(r.trust||0)+Number(r.dealer||0)]);const min=Math.min(...vals),max=Math.max(...vals),span=max-min||1;const x=i=>pad.left+i*(chart.width-pad.left-pad.right)/Math.max(series.length-1,1),y=v=>pad.top+(max-v)/span*(chart.height-pad.top-pad.bottom);["#2563eb","#079455"].forEach((color,line)=>{ctx.strokeStyle=color;ctx.lineWidth=3;ctx.beginPath();series.forEach((r,i)=>{const v=line?Number(r.foreign||0)+Number(r.trust||0)+Number(r.dealer||0):Number(r.close);i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v));});ctx.stroke();});}
+    function renderDetail(){const s=stockPool.find(x=>x.symbol===selectedSymbol),series=seriesOf(selectedSymbol),r=series.at(-1);document.querySelector("#detailTitle").textContent=s?`${s.symbol} ${s.name}`:"個股明細";document.querySelector("#detailDate").textContent=r?.date||"--";draw(series);if(!r){document.querySelector("#detailSignals").innerHTML='<span class="chip">尚無資料</span>';document.querySelector("#historyRows").innerHTML="";return;}const p=predInfo(r),inst=Number(r.foreign||0)+Number(r.trust||0)+Number(r.dealer||0);const chips=[`評比 ${starText(p.stars)} (${number(p.stars,1)})`,`明日${p.dir==="up"?"猜漲":"猜跌"} / 勝率 ${p.win} / ${p.streak}`,`族群強弱 ${signed(p.industry.score,1)}：${p.industry.labels.join("、")}`,`四季紅 ${p.four?"觸發":"未觸發"}`,`大戶買 ${Number(r.majorBuy??r.majorChange)>0?"觸發":"無資料/未觸發"}`,`法人 ${signed(inst)} 張`,`外資 ${signed(r.foreign)} 張`,`投信 ${signed(r.trust)} 張`];document.querySelector("#detailSignals").innerHTML=chips.map(c=>`<span class="chip">${c}</span>`).join("");document.querySelector("#historyRows").innerHTML=series.slice().reverse().map(x=>{const total=Number(x.foreign||0)+Number(x.trust||0)+Number(x.dealer||0);return`<tr><td>${x.date}</td><td>${x.symbol} ${x.name}</td><td>${number(x.close,2)}</td><td class="${cls(x.change)}">${signed(x.change,2)}</td><td class="${cls(x.foreign)}">${signed(x.foreign)}</td><td class="${cls(x.trust)}">${signed(x.trust)}</td><td class="${cls(x.dealer)}">${signed(x.dealer)}</td><td class="${cls(total)}">${signed(total)}</td><td>${number(x.margin)}</td><td>${number(x.short)}</td></tr>`}).join("");}
+    async function loadData(){const p=await (await fetch("/api/data")).json();stockPool=p.stockPool||[];records=p.records||[];marketContext=p.market||null;document.querySelector("#statusText").textContent=p.updatedAt?`上次更新：${new Date(p.updatedAt).toLocaleString("zh-TW")}`:"尚未更新";document.querySelector("#banner").textContent=p.message||"按左側「更新公開資料」取得最新盤後資料。";render();}
+    async function updateData(){updateButton.disabled=true;updateButton.textContent="更新中...";try{const resp=await fetch("/api/update",{method:"POST"});const p=await resp.json();if(!resp.ok)throw new Error(p.error||"更新失敗");stockPool=p.stockPool||stockPool;records=p.records||[];marketContext=p.market||null;document.querySelector("#statusText").textContent=`上次更新：${new Date(p.updatedAt).toLocaleString("zh-TW")}`;document.querySelector("#banner").textContent=p.message;render();}catch(e){document.querySelector("#banner").textContent=`更新失敗：${e.message}`;}finally{updateButton.disabled=false;updateButton.textContent="更新公開資料";}}
+    updateButton.onclick=updateData;themeSelect.onchange=render;stockSelect.onchange=()=>{selectedSymbol=stockSelect.value;render();};loadData();
+  </script>
+</body>
+</html>
