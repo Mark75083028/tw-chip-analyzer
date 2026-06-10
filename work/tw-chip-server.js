@@ -60,12 +60,14 @@ function tpexRocDateParam(value) {
   return `${Number(value.slice(0, 4)) - 1911}/${value.slice(4, 6)}/${value.slice(6, 8)}`;
 }
 
-async function json(url, label = url) {
+async function json(url, label = url, options = {}) {
+  const attempts = options.attempts || 3;
+  const timeoutMs = options.timeoutMs || FETCH_TIMEOUT_MS;
   let lastError;
-  for (let attempt = 1; attempt <= 3; attempt += 1) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0 local chip analyzer" }, signal: controller.signal });
       clearTimeout(timer);
       const text = await res.text();
@@ -141,11 +143,12 @@ async function recentCloseHistory(warnings) {
   let twseDays = 0;
   let tpexDays = 0;
 
-  for (let offset = 0; offset < 16 && (twseDays < 5 || tpexDays < 5); offset += 1) {
+  const fast = { attempts: 1, timeoutMs: 4500 };
+  for (let offset = 0; offset < 22 && (twseDays < 5 || tpexDays < 5); offset += 1) {
     const date = todayYmd(offset);
     if (twseDays < 5) {
       try {
-        const payload = await json(`https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${date}&type=ALLBUT0999&response=json`, `上市五日線 ${date}`);
+        const payload = await json(`https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${date}&type=ALLBUT0999&response=json`, `上市五日線 ${date}`, fast);
         const parsed = twseCloseTable(payload);
         if (parsed.map.size) {
           twseDays += 1;
@@ -156,7 +159,7 @@ async function recentCloseHistory(warnings) {
 
     if (tpexDays < 5) {
       try {
-        const rows = await json(`https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes?d=${tpexRocDateParam(date)}`, `上櫃五日線 ${date}`);
+        const rows = await json(`https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes?d=${tpexRocDateParam(date)}`, `上櫃五日線 ${date}`, fast);
         if (Array.isArray(rows) && rows.length) {
           tpexDays += 1;
           for (const row of rows) appendCloseHistory(tpex, String(row.SecuritiesCompanyCode || "").trim(), rocToIso(row.Date), cleanNumber(row.Close));
@@ -173,7 +176,7 @@ async function recentCloseHistory(warnings) {
 
 async function yahooCloseHistory(symbol, market, maxDate) {
   const suffix = market === "twse" ? "TW" : "TWO";
-  const payload = await json(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}.${suffix}?range=14d&interval=1d`, `Yahoo五日線 ${symbol}`);
+  const payload = await json(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}.${suffix}?range=14d&interval=1d`, `Yahoo五日線 ${symbol}`, { attempts: 1, timeoutMs: 4500 });
   const result = payload.chart?.result?.[0];
   const timestamps = result?.timestamp || [];
   const closes = result?.indicators?.quote?.[0]?.close || [];
