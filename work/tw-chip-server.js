@@ -69,7 +69,15 @@ async function json(url, label = url, options = {}) {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
-      const res = await fetch(requestUrl, { headers: { "user-agent": "Mozilla/5.0 local chip analyzer" }, signal: controller.signal });
+      const res = await fetch(requestUrl, {
+        headers: {
+          "accept": "application/json,text/plain,*/*",
+          "accept-language": "zh-TW,zh;q=0.9,en;q=0.8",
+          "user-agent": "Mozilla/5.0 local chip analyzer"
+        },
+        redirect: "follow",
+        signal: controller.signal
+      });
       clearTimeout(timer);
       const text = await res.text();
       if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
@@ -193,6 +201,20 @@ async function yahooCloseHistory(symbol, market, maxDate) {
     .slice(-5);
 }
 
+async function yahooLatestClose(symbol, market, maxDate) {
+  const history = await yahooCloseHistory(symbol, market, maxDate);
+  const latest = history.at(-1);
+  if (!latest) return null;
+  const previous = history.at(-2);
+  return {
+    Date: latest.date,
+    Close: latest.close,
+    Change: previous ? latest.close - previous.close : null,
+    closeHistory: history,
+    source: "Yahoo"
+  };
+}
+
 async function fillMissingCloseHistory(records, warnings) {
   const targets = records.filter(row => (row.closeHistory || []).length < 5);
   const workerCount = 24;
@@ -308,19 +330,28 @@ async function updateData() {
   };
   const records = [];
   const warnings = [...sourceWarnings];
+  let yahooTpexFallbacks = 0;
 
   for (const stock of uniqueStockPool) {
-    const market = twseClosePack.map.has(stock.symbol) ? "twse" : tpexCloseByCode.has(stock.symbol) ? "tpex" : null;
+    let market = twseClosePack.map.has(stock.symbol) ? "twse" : tpexCloseByCode.has(stock.symbol) ? "tpex" : null;
+    let yahooClose = null;
+    if (!market && !twseClosePack.map.has(stock.symbol)) {
+      yahooClose = await yahooLatestClose(stock.symbol, "tpex", twseDate);
+      if (yahooClose) {
+        market = "tpex";
+        yahooTpexFallbacks += 1;
+      }
+    }
     if (!market) {
       warnings.push(`${stock.symbol} ${stock.name} 無上市櫃收盤資料`);
       continue;
     }
-    const closeRow = market === "twse" ? twseClosePack.map.get(stock.symbol) : tpexCloseByCode.get(stock.symbol);
+    const closeRow = market === "twse" ? twseClosePack.map.get(stock.symbol) : (tpexCloseByCode.get(stock.symbol) || yahooClose);
     const marginRow = market === "twse" ? twseMarginByCode.get(stock.symbol) : tpexMarginByCode.get(stock.symbol);
     const inst = market === "twse" ? twseInstByCode.get(stock.symbol) : tpexInstByCode.get(stock.symbol);
     if (!inst && (market === "twse" ? sourceAvailable.twseInst : sourceAvailable.tpexInst)) warnings.push(`${stock.symbol} ${stock.name} 無三大法人資料`);
     if (!marginRow && (market === "twse" ? sourceAvailable.twseMargin : sourceAvailable.tpexMargin)) warnings.push(`${stock.symbol} ${stock.name} 無融資融券資料`);
-    const date = market === "twse" ? twseDate : rocToIso(closeRow.Date);
+    const date = market === "twse" ? twseDate : (closeRow.source === "Yahoo" ? closeRow.Date : rocToIso(closeRow.Date));
     records.push({
       ...stock,
       market,
@@ -332,18 +363,21 @@ async function updateData() {
       dealer: inst?.dealer ?? null,
       margin: cleanNumber(market === "twse" ? marginRow?.["融資今日餘額"] : marginRow?.MarginPurchaseBalance),
       short: cleanNumber(market === "twse" ? marginRow?.["融券今日餘額"] : marginRow?.ShortSaleBalance),
-      closeHistory: (market === "twse" ? closeHistory.twse : closeHistory.tpex).get(stock.symbol) || []
+      closeHistory: closeRow.closeHistory || (market === "twse" ? closeHistory.twse : closeHistory.tpex).get(stock.symbol) || [],
+      closeSource: closeRow.source || undefined
     });
   }
 
+  if (yahooTpexFallbacks) warnings.push(`上櫃收盤有 ${yahooTpexFallbacks} 檔以 Yahoo 日K補足`);
   await fillMissingCloseHistory(records, warnings);
   const market = await marketContext();
+  const tpexDate = rocToIso(tpexClose[0]?.Date) || records.filter(row => row.market === "tpex").map(row => row.date).sort().at(-1) || "未知";
   const store = {
     stockPool: uniqueStockPool,
     updatedAt: new Date().toISOString(),
     market,
     records,
-    message: `已更新 ${records.length}/${uniqueStockPool.length} 檔真實公開資料。上市收盤/T86 ${twseDate}，上櫃收盤 ${rocToIso(tpexClose[0]?.Date) || "未知"}；三大法人股數已換算為張。${market ? ` 大盤 ${market.date} ${market.changePercent}%。` : ""}${warnings.length ? ` 注意：${warnings.slice(0, 8).join("、")}${warnings.length > 8 ? ` 等 ${warnings.length} 項` : ""}` : ""}`
+    message: `已更新 ${records.length}/${uniqueStockPool.length} 檔真實公開資料。上市收盤/T86 ${twseDate}，上櫃收盤 ${tpexDate}；三大法人股數已換算為張。${market ? ` 大盤 ${market.date} ${market.changePercent}%。` : ""}${warnings.length ? ` 注意：${warnings.slice(0, 8).join("、")}${warnings.length > 8 ? ` 等 ${warnings.length} 項` : ""}` : ""}`
   };
   await writeStore(store);
   return store;
