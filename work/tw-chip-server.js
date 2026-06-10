@@ -7,6 +7,7 @@ const HTML_PATH = path.join(ROOT, "outputs", "tw-chip-live.html");
 const DATA_PATH = path.join(ROOT, "work", "tw-chip-data.json");
 const PORT = Number(process.env.PORT || 8766);
 const HOST = process.env.HOST || (process.env.PORT ? "0.0.0.0" : "127.0.0.1");
+const FETCH_TIMEOUT_MS = 12000;
 
 const stockPool = [
   ["2382","廣達","AI","AI 伺服器 ODM"],["6669","緯穎","AI","AI 伺服器 ODM"],["3231","緯創","AI","AI 伺服器 ODM"],["2317","鴻海","AI","AI 伺服器 ODM"],["2356","英業達","AI","AI 伺服器 ODM"],["2324","仁寶","AI","AI 伺服器 ODM"],["3706","神達","AI","AI 伺服器 ODM"],
@@ -63,7 +64,10 @@ async function json(url, label = url) {
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0 local chip analyzer" } });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+      const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0 local chip analyzer" }, signal: controller.signal });
+      clearTimeout(timer);
       const text = await res.text();
       if (!res.ok) throw new Error(`${label} HTTP ${res.status}`);
       return JSON.parse(text);
@@ -165,6 +169,38 @@ async function recentCloseHistory(warnings) {
   if (tpexDays < 5) warnings.push(`上櫃五日線僅取得 ${tpexDays}/5 個交易日`);
   for (const rows of [...twse.values(), ...tpex.values()]) rows.sort((a, b) => a.date.localeCompare(b.date));
   return { twse, tpex };
+}
+
+async function yahooCloseHistory(symbol, market) {
+  const suffix = market === "twse" ? "TW" : "TWO";
+  const payload = await json(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}.${suffix}?range=14d&interval=1d`, `Yahoo五日線 ${symbol}`);
+  const result = payload.chart?.result?.[0];
+  const timestamps = result?.timestamp || [];
+  const closes = result?.indicators?.quote?.[0]?.close || [];
+  return timestamps
+    .map((timestamp, index) => ({ date: new Date(timestamp * 1000).toISOString().slice(0, 10), close: cleanNumber(closes[index]) }))
+    .filter(row => row.close != null)
+    .slice(-5);
+}
+
+async function fillMissingCloseHistory(records, warnings) {
+  const targets = records.filter(row => (row.closeHistory || []).length < 5);
+  let filled = 0;
+  const workers = Array.from({ length: 8 }, async (_, workerIndex) => {
+    for (let index = workerIndex; index < targets.length; index += 8) {
+      const row = targets[index];
+      try {
+        const history = await yahooCloseHistory(row.symbol, row.market);
+        if (history.length >= 5) {
+          row.closeHistory = history;
+          row.closeHistorySource = "Yahoo";
+          filled += 1;
+        }
+      } catch {}
+    }
+  });
+  await Promise.all(workers);
+  if (filled) warnings.push(`五日線有 ${filled} 檔以 Yahoo 日K補足`);
 }
 
 function twseInstMap(payload) {
@@ -290,6 +326,7 @@ async function updateData() {
     });
   }
 
+  await fillMissingCloseHistory(records, warnings);
   const market = await marketContext();
   const store = {
     stockPool: uniqueStockPool,
