@@ -51,6 +51,14 @@ function todayYmd(offsetDays = 0) {
   return `${tw.getFullYear()}${String(tw.getMonth() + 1).padStart(2, "0")}${String(tw.getDate()).padStart(2, "0")}`;
 }
 
+function isoFromYmd(value) {
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+}
+
+function tpexRocDateParam(value) {
+  return `${Number(value.slice(0, 4)) - 1911}/${value.slice(4, 6)}/${value.slice(6, 8)}`;
+}
+
 async function json(url, label = url) {
   let lastError;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
@@ -114,6 +122,49 @@ async function latestTwseClose() {
     if (parsed.map.size) return parsed;
   }
   throw new Error("找不到最近上市每日收盤資料");
+}
+
+function appendCloseHistory(target, symbol, date, close) {
+  if (!symbol || close == null) return;
+  if (!target.has(symbol)) target.set(symbol, []);
+  const rows = target.get(symbol);
+  if (!rows.some(row => row.date === date)) rows.push({ date, close });
+}
+
+async function recentCloseHistory(warnings) {
+  const twse = new Map();
+  const tpex = new Map();
+  let twseDays = 0;
+  let tpexDays = 0;
+
+  for (let offset = 0; offset < 16 && (twseDays < 5 || tpexDays < 5); offset += 1) {
+    const date = todayYmd(offset);
+    if (twseDays < 5) {
+      try {
+        const payload = await json(`https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${date}&type=ALLBUT0999&response=json`, `上市五日線 ${date}`);
+        const parsed = twseCloseTable(payload);
+        if (parsed.map.size) {
+          twseDays += 1;
+          for (const [symbol, row] of parsed.map) appendCloseHistory(twse, symbol, isoFromYmd(parsed.date), cleanNumber(row.ClosingPrice));
+        }
+      } catch {}
+    }
+
+    if (tpexDays < 5) {
+      try {
+        const rows = await json(`https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes?d=${tpexRocDateParam(date)}`, `上櫃五日線 ${date}`);
+        if (Array.isArray(rows) && rows.length) {
+          tpexDays += 1;
+          for (const row of rows) appendCloseHistory(tpex, String(row.SecuritiesCompanyCode || "").trim(), rocToIso(row.Date), cleanNumber(row.Close));
+        }
+      } catch {}
+    }
+  }
+
+  if (twseDays < 5) warnings.push(`上市五日線僅取得 ${twseDays}/5 個交易日`);
+  if (tpexDays < 5) warnings.push(`上櫃五日線僅取得 ${tpexDays}/5 個交易日`);
+  for (const rows of [...twse.values(), ...tpex.values()]) rows.sort((a, b) => a.date.localeCompare(b.date));
+  return { twse, tpex };
 }
 
 function twseInstMap(payload) {
@@ -202,6 +253,7 @@ async function updateData() {
   const twseMarginByCode = indexBy(twseMargin, "股票代號");
   const tpexCloseByCode = indexBy(tpexClose, "SecuritiesCompanyCode");
   const tpexMarginByCode = indexBy(tpexMargin, "SecuritiesCompanyCode");
+  const closeHistory = await recentCloseHistory(sourceWarnings);
   const sourceAvailable = {
     twseInst: twseInstByCode.size > 0,
     tpexInst: tpexInstByCode.size > 0,
@@ -233,7 +285,8 @@ async function updateData() {
       trust: inst?.trust ?? null,
       dealer: inst?.dealer ?? null,
       margin: cleanNumber(market === "twse" ? marginRow?.["融資今日餘額"] : marginRow?.MarginPurchaseBalance),
-      short: cleanNumber(market === "twse" ? marginRow?.["融券今日餘額"] : marginRow?.ShortSaleBalance)
+      short: cleanNumber(market === "twse" ? marginRow?.["融券今日餘額"] : marginRow?.ShortSaleBalance),
+      closeHistory: (market === "twse" ? closeHistory.twse : closeHistory.tpex).get(stock.symbol) || []
     });
   }
 
