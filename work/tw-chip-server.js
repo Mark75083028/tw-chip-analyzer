@@ -171,7 +171,7 @@ async function recentCloseHistory(warnings) {
   return { twse, tpex };
 }
 
-async function yahooCloseHistory(symbol, market) {
+async function yahooCloseHistory(symbol, market, maxDate) {
   const suffix = market === "twse" ? "TW" : "TWO";
   const payload = await json(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}.${suffix}?range=14d&interval=1d`, `Yahoo五日線 ${symbol}`);
   const result = payload.chart?.result?.[0];
@@ -180,6 +180,7 @@ async function yahooCloseHistory(symbol, market) {
   return timestamps
     .map((timestamp, index) => ({ date: new Date(timestamp * 1000).toISOString().slice(0, 10), close: cleanNumber(closes[index]) }))
     .filter(row => row.close != null)
+    .filter(row => !maxDate || row.date <= maxDate)
     .slice(-5);
 }
 
@@ -190,7 +191,7 @@ async function fillMissingCloseHistory(records, warnings) {
     for (let index = workerIndex; index < targets.length; index += 8) {
       const row = targets[index];
       try {
-        const history = await yahooCloseHistory(row.symbol, row.market);
+        const history = await yahooCloseHistory(row.symbol, row.market, row.date);
         if (history.length >= 5) {
           row.closeHistory = history;
           row.closeHistorySource = "Yahoo";
