@@ -202,6 +202,12 @@ async function updateData() {
   const twseMarginByCode = indexBy(twseMargin, "股票代號");
   const tpexCloseByCode = indexBy(tpexClose, "SecuritiesCompanyCode");
   const tpexMarginByCode = indexBy(tpexMargin, "SecuritiesCompanyCode");
+  const sourceAvailable = {
+    twseInst: twseInstByCode.size > 0,
+    tpexInst: tpexInstByCode.size > 0,
+    twseMargin: twseMarginByCode.size > 0,
+    tpexMargin: tpexMarginByCode.size > 0
+  };
   const records = [];
   const warnings = [...sourceWarnings];
 
@@ -214,8 +220,8 @@ async function updateData() {
     const closeRow = market === "twse" ? twseClosePack.map.get(stock.symbol) : tpexCloseByCode.get(stock.symbol);
     const marginRow = market === "twse" ? twseMarginByCode.get(stock.symbol) : tpexMarginByCode.get(stock.symbol);
     const inst = market === "twse" ? twseInstByCode.get(stock.symbol) : tpexInstByCode.get(stock.symbol);
-    if (!inst) warnings.push(`${stock.symbol} ${stock.name} 無三大法人資料`);
-    if (!marginRow) warnings.push(`${stock.symbol} ${stock.name} 無融資融券資料`);
+    if (!inst && (market === "twse" ? sourceAvailable.twseInst : sourceAvailable.tpexInst)) warnings.push(`${stock.symbol} ${stock.name} 無三大法人資料`);
+    if (!marginRow && (market === "twse" ? sourceAvailable.twseMargin : sourceAvailable.tpexMargin)) warnings.push(`${stock.symbol} ${stock.name} 無融資融券資料`);
     const date = market === "twse" ? twseDate : rocToIso(closeRow.Date);
     records.push({
       ...stock,
