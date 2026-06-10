@@ -67,6 +67,15 @@ async function json(url, label = url) {
   throw new Error(`${label} 下載失敗：${lastError?.message || lastError}`);
 }
 
+async function optionalJson(url, label, warnings) {
+  try {
+    return await json(url, label);
+  } catch (error) {
+    warnings.push(`${label} 暫時無法取得：${error?.message || error}`);
+    return [];
+  }
+}
+
 function indexBy(rows, key) {
   const map = new Map();
   for (const row of rows || []) map.set(String(row[key] || "").trim(), row);
@@ -171,23 +180,30 @@ async function writeStore(store) {
 }
 
 async function updateData() {
+  const sourceWarnings = [];
   const [twseClosePack, twseMargin, tpexClose, tpexInst, tpexMargin] = await Promise.all([
     latestTwseClose(),
-    json("https://openapi.twse.com.tw/v1/exchangeReport/MI_MARGN", "上市融資融券"),
-    json("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes", "上櫃收盤"),
-    json("https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading", "上櫃三大法人"),
-    json("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance", "上櫃融資融券")
+    optionalJson("https://openapi.twse.com.tw/v1/exchangeReport/MI_MARGN", "上市融資融券", sourceWarnings),
+    optionalJson("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes", "上櫃收盤", sourceWarnings),
+    optionalJson("https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading", "上櫃三大法人", sourceWarnings),
+    optionalJson("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance", "上櫃融資融券", sourceWarnings)
   ]);
 
   const twseDate = `${twseClosePack.date.slice(0,4)}-${twseClosePack.date.slice(4,6)}-${twseClosePack.date.slice(6,8)}`;
-  const twseInst = await json(`https://www.twse.com.tw/rwd/zh/fund/T86?date=${ymd(twseDate)}&selectType=ALLBUT0999&response=json`, "上市三大法人");
-  const twseInstByCode = twseInst.stat === "OK" ? twseInstMap(twseInst) : new Map();
+  let twseInstByCode = new Map();
+  try {
+    const twseInst = await json(`https://www.twse.com.tw/rwd/zh/fund/T86?date=${ymd(twseDate)}&selectType=ALLBUT0999&response=json`, "上市三大法人");
+    twseInstByCode = twseInst.stat === "OK" ? twseInstMap(twseInst) : new Map();
+    if (twseInst.stat !== "OK") sourceWarnings.push(`上市三大法人 ${twseDate} 尚未發布`);
+  } catch (error) {
+    sourceWarnings.push(`上市三大法人暫時無法取得：${error?.message || error}`);
+  }
   const tpexInstByCode = tpexInstMap(tpexInst);
   const twseMarginByCode = indexBy(twseMargin, "股票代號");
   const tpexCloseByCode = indexBy(tpexClose, "SecuritiesCompanyCode");
   const tpexMarginByCode = indexBy(tpexMargin, "SecuritiesCompanyCode");
   const records = [];
-  const warnings = [];
+  const warnings = [...sourceWarnings];
 
   for (const stock of uniqueStockPool) {
     const market = twseClosePack.map.has(stock.symbol) ? "twse" : tpexCloseByCode.has(stock.symbol) ? "tpex" : null;
