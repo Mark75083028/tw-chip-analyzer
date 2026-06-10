@@ -238,15 +238,21 @@ async function handler(req, res) {
       res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
       res.end(JSON.stringify(await readStore()));
     } else if (url.pathname === "/api/update" && req.method === "POST") {
+      const store = await updateData();
       res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-      res.end(JSON.stringify(await updateData()));
+      res.end(JSON.stringify(store));
     } else {
       res.writeHead(404);
       res.end("Not found");
     }
   } catch (error) {
-    res.writeHead(500, { "content-type": "application/json; charset=utf-8" });
-    res.end(JSON.stringify({ error: String(error?.message || error) }));
+    const body = JSON.stringify({ error: String(error?.message || error) });
+    if (res.headersSent) {
+      res.end(body);
+      return;
+    }
+    res.writeHead(500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(body);
   }
 }
 
