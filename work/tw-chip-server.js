@@ -64,13 +64,19 @@ async function json(url, label = url, options = {}) {
   const attempts = options.attempts || 3;
   const timeoutMs = options.timeoutMs || FETCH_TIMEOUT_MS;
   let lastError;
+  let requestUrl = url;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
-      const res = await fetch(url, { headers: { "user-agent": "Mozilla/5.0 local chip analyzer" }, signal: controller.signal });
+      const res = await fetch(requestUrl, { headers: { "user-agent": "Mozilla/5.0 local chip analyzer" }, signal: controller.signal });
       clearTimeout(timer);
       const text = await res.text();
+      if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
+        requestUrl = new URL(res.headers.get("location"), requestUrl).href;
+        attempt -= 1;
+        continue;
+      }
       if (!res.ok) throw new Error(`${label} HTTP ${res.status}`);
       return JSON.parse(text);
     } catch (error) {
