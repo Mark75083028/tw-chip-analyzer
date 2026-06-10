@@ -144,7 +144,7 @@ async function recentCloseHistory(warnings) {
   let tpexDays = 0;
 
   const fast = { attempts: 1, timeoutMs: 4500 };
-  for (let offset = 0; offset < 22 && (twseDays < 5 || tpexDays < 5); offset += 1) {
+  for (let offset = 0; offset < 10 && (twseDays < 5 || tpexDays < 5); offset += 1) {
     const date = todayYmd(offset);
     if (twseDays < 5) {
       try {
@@ -190,7 +190,7 @@ async function yahooCloseHistory(symbol, market, maxDate) {
 async function fillMissingCloseHistory(records, warnings) {
   const targets = records.filter(row => (row.closeHistory || []).length < 5);
   let filled = 0;
-  const workers = Array.from({ length: 8 }, async (_, workerIndex) => {
+  const workers = Array.from({ length: 24 }, async (_, workerIndex) => {
     for (let index = workerIndex; index < targets.length; index += 8) {
       const row = targets[index];
       try {
