@@ -195,21 +195,21 @@ async function yahooCloseHistory(symbol, market, maxDate) {
 
 async function fillMissingCloseHistory(records, warnings) {
   const targets = records.filter(row => (row.closeHistory || []).length < 5);
-  let filled = 0;
-  const workers = Array.from({ length: 24 }, async (_, workerIndex) => {
-    for (let index = workerIndex; index < targets.length; index += 8) {
+  const workerCount = 24;
+  const workers = Array.from({ length: workerCount }, async (_, workerIndex) => {
+    for (let index = workerIndex; index < targets.length; index += workerCount) {
       const row = targets[index];
       try {
         const history = await yahooCloseHistory(row.symbol, row.market, row.date);
         if (history.length >= 5) {
           row.closeHistory = history;
           row.closeHistorySource = "Yahoo";
-          filled += 1;
         }
       } catch {}
     }
   });
   await Promise.all(workers);
+  const filled = records.filter(row => row.closeHistorySource === "Yahoo").length;
   if (filled) warnings.push(`五日線有 ${filled} 檔以 Yahoo 日K補足`);
 }
 
