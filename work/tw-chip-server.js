@@ -83,7 +83,7 @@ async function optionalJson(url, label, warnings) {
   try {
     return await json(url, label);
   } catch (error) {
-    warnings.push(`${label} 暫時無法取得：${error?.message || error}`);
+    warnings.push(`${label} 暫時無法取得，已略過此欄位`);
     return [];
   }
 }
@@ -284,7 +284,7 @@ async function updateData() {
     twseInstByCode = twseInst.stat === "OK" ? twseInstMap(twseInst) : new Map();
     if (twseInst.stat !== "OK") sourceWarnings.push(`上市三大法人 ${twseDate} 尚未發布`);
   } catch (error) {
-    sourceWarnings.push(`上市三大法人暫時無法取得：${error?.message || error}`);
+    sourceWarnings.push("上市三大法人暫時無法取得，已略過此欄位");
   }
   const tpexInstByCode = tpexInstMap(tpexInst);
   const twseMarginByCode = indexBy(twseMargin, "股票代號");
