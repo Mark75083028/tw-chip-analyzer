@@ -73,7 +73,10 @@ async function json(url, label = url, options = {}) {
         headers: {
           "accept": "application/json,text/plain,*/*",
           "accept-language": "zh-TW,zh;q=0.9,en;q=0.8",
-          "user-agent": "Mozilla/5.0 local chip analyzer"
+          "cache-control": "no-cache",
+          "pragma": "no-cache",
+          "user-agent": "Mozilla/5.0 local chip analyzer",
+          ...(options.headers || {})
         },
         redirect: "follow",
         signal: controller.signal
@@ -338,7 +341,13 @@ async function updateData() {
   }
   let twseInstByCode = new Map();
   try {
-    const twseInst = await json(`https://www.twse.com.tw/rwd/zh/fund/T86?date=${ymd(twseDate)}&selectType=ALLBUT0999&response=json`, "上市三大法人");
+    const twseInst = await json(`https://www.twse.com.tw/rwd/zh/fund/T86?date=${ymd(twseDate)}&selectType=ALLBUT0999&response=json`, "上市三大法人", {
+      attempts: 4,
+      timeoutMs: 60000,
+      headers: {
+        "referer": "https://www.twse.com.tw/zh/trading/foreign/t86.html"
+      }
+    });
     twseInstByCode = twseInst.stat === "OK" ? twseInstMap(twseInst) : new Map();
     if (twseInst.stat !== "OK") sourceWarnings.push(`上市三大法人 ${twseDate} 尚未發布`);
   } catch (error) {
