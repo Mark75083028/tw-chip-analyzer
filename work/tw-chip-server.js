@@ -268,6 +268,26 @@ function tpexInstMap(rows) {
   return map;
 }
 
+function twseMarginMap(payload) {
+  const map = new Map();
+  const table = (payload.tables || []).find(item => {
+    return Array.isArray(item.fields)
+      && item.fields[0] === "代號"
+      && item.fields[1] === "名稱"
+      && item.fields.includes("資券互抵");
+  });
+  if (!table) return map;
+  for (const row of table.data || []) {
+    const symbol = String(row[0] || "").trim();
+    if (!symbol) continue;
+    map.set(symbol, {
+      marginBalance: cleanNumber(row[6]),
+      shortBalance: cleanNumber(row[12])
+    });
+  }
+  return map;
+}
+
 async function marketContext() {
   const pack = await latestTwseClose();
   const payload = await json(`https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${pack.date}&type=ALLBUT0999&response=json`, "大盤指數");
@@ -300,15 +320,22 @@ async function writeStore(store) {
 
 async function updateData() {
   const sourceWarnings = [];
-  const [twseClosePack, twseMargin, tpexClose, tpexInst, tpexMargin] = await Promise.all([
+  const [twseClosePack, tpexClose, tpexInst, tpexMargin] = await Promise.all([
     latestTwseClose(),
-    optionalJson("https://openapi.twse.com.tw/v1/exchangeReport/MI_MARGN", "上市融資融券", sourceWarnings),
     optionalJson("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes", "上櫃收盤", sourceWarnings),
     optionalJson("https://www.tpex.org.tw/openapi/v1/tpex_3insti_daily_trading", "上櫃三大法人", sourceWarnings),
     optionalJson("https://www.tpex.org.tw/openapi/v1/tpex_mainboard_margin_balance", "上櫃融資融券", sourceWarnings)
   ]);
 
   const twseDate = `${twseClosePack.date.slice(0,4)}-${twseClosePack.date.slice(4,6)}-${twseClosePack.date.slice(6,8)}`;
+  let twseMarginByCode = new Map();
+  try {
+    const twseMargin = await json(`https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN?date=${ymd(twseDate)}&selectType=ALL&response=json`, "上市融資融券");
+    twseMarginByCode = twseMargin.stat === "OK" ? twseMarginMap(twseMargin) : new Map();
+    if (twseMargin.stat !== "OK") sourceWarnings.push(`上市融資融券 ${twseDate} 尚未發布`);
+  } catch (error) {
+    sourceWarnings.push("上市融資融券 暫時無法取得，已略過此欄位");
+  }
   let twseInstByCode = new Map();
   try {
     const twseInst = await json(`https://www.twse.com.tw/rwd/zh/fund/T86?date=${ymd(twseDate)}&selectType=ALLBUT0999&response=json`, "上市三大法人");
@@ -318,7 +345,6 @@ async function updateData() {
     sourceWarnings.push("上市三大法人暫時無法取得，已略過此欄位");
   }
   const tpexInstByCode = tpexInstMap(tpexInst);
-  const twseMarginByCode = indexBy(twseMargin, "股票代號");
   const tpexCloseByCode = indexBy(tpexClose, "SecuritiesCompanyCode");
   const tpexMarginByCode = indexBy(tpexMargin, "SecuritiesCompanyCode");
   const closeHistory = await recentCloseHistory(sourceWarnings);
@@ -361,8 +387,8 @@ async function updateData() {
       foreign: inst?.foreign ?? null,
       trust: inst?.trust ?? null,
       dealer: inst?.dealer ?? null,
-      margin: cleanNumber(market === "twse" ? marginRow?.["融資今日餘額"] : marginRow?.MarginPurchaseBalance),
-      short: cleanNumber(market === "twse" ? marginRow?.["融券今日餘額"] : marginRow?.ShortSaleBalance),
+      margin: cleanNumber(market === "twse" ? marginRow?.marginBalance : marginRow?.MarginPurchaseBalance),
+      short: cleanNumber(market === "twse" ? marginRow?.shortBalance : marginRow?.ShortSaleBalance),
       closeHistory: closeRow.closeHistory || (market === "twse" ? closeHistory.twse : closeHistory.tpex).get(stock.symbol) || [],
       closeSource: closeRow.source || undefined
     });
