@@ -274,7 +274,8 @@ function tpexInstMap(rows) {
 async function cachedTwseInst(date) {
   const cachePath = path.join(ROOT, "work", `twse-t86-${date}.json`);
   try {
-    return JSON.parse(await fs.readFile(cachePath, "utf8"));
+    const text = await fs.readFile(cachePath, "utf8");
+    return JSON.parse(text.replace(/^\uFEFF/, ""));
   } catch {
     return null;
   }
