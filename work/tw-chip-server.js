@@ -271,6 +271,15 @@ function tpexInstMap(rows) {
   return map;
 }
 
+async function cachedTwseInst(date) {
+  const cachePath = path.join(ROOT, "work", `twse-t86-${date}.json`);
+  try {
+    return JSON.parse(await fs.readFile(cachePath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
 function twseMarginMap(payload) {
   const map = new Map();
   const table = (payload.tables || []).find(item => {
@@ -351,7 +360,13 @@ async function updateData() {
     twseInstByCode = twseInst.stat === "OK" ? twseInstMap(twseInst) : new Map();
     if (twseInst.stat !== "OK") sourceWarnings.push(`上市三大法人 ${twseDate} 尚未發布`);
   } catch (error) {
-    sourceWarnings.push("上市三大法人暫時無法取得，已略過此欄位");
+    const cached = await cachedTwseInst(ymd(twseDate));
+    if (cached?.stat === "OK") {
+      twseInstByCode = twseInstMap(cached);
+      sourceWarnings.push(`上市三大法人以 ${twseDate} 官方快取補足`);
+    } else {
+      sourceWarnings.push("上市三大法人暫時無法取得，已略過此欄位");
+    }
   }
   const tpexInstByCode = tpexInstMap(tpexInst);
   const tpexCloseByCode = indexBy(tpexClose, "SecuritiesCompanyCode");
